@@ -109,8 +109,6 @@ struct record_state {
 static unsigned char g_user_buf[USER_STR_BUFF] = {0};
 #define ILI_SPI_NAME "ilitek"
 #define ILI_SPI_NAME_TM "ilitek_tm"
-#define ILI_SPI_NAME_CSOT "ilitek_csot"
-#define ILI_SPI_NAME_TXD "ilitek_txd"
 static struct class *touchscreen_class;
 static struct device *touchscreen_class_dev;
 
@@ -192,9 +190,7 @@ struct file_buffer {
 static int file_write(struct file_buffer *file, bool new_open)
 {
 	struct file *f = NULL;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
 	mm_segment_t fs;
-#endif
 	loff_t pos;
 
 	if (file->ptr == NULL) {
@@ -221,15 +217,12 @@ static int file_write(struct file_buffer *file, bool new_open)
 		ILI_ERR("Failed to open %s file\n", file->fname);
 		return -1;
 	}
-	pos = 0;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
-	kernel_write(f, file->ptr, file->wlen, &pos);
-#else
+
 	fs = get_fs();
 	set_fs(KERNEL_DS);
+	pos = 0;
 	vfs_write(f, file->ptr, file->flen, &pos);
 	set_fs(fs);
-#endif
 	filp_close(f, NULL);
 	return 0;
 }
@@ -351,10 +344,6 @@ out:
 
 static int dev_mkdir(char *name, umode_t mode)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
-	int err = -1;
-	return err;
-#else
 #if 0
 	struct dentry *dentry;
 	struct path path;
@@ -378,7 +367,6 @@ static int dev_mkdir(char *name, umode_t mode)
 
 	return err;
 #endif
-#endif //#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
 }
 
 static ssize_t ilitek_proc_get_delta_data_read(struct file *pFile, char __user *buf, size_t size, loff_t *pos)
@@ -1404,16 +1392,9 @@ int ili_tp_data_mode_ctrl(u8* cmd)
 				ret = -ENOTTY;
 			}
 		} else {
-			if (ilits->actual_tp_mode == P5_X_FW_TEST_MODE) {
-				if (ili_switch_tp_mode(P5_X_FW_AP_MODE) < 0) {
-					ILI_ERR("Failed to switch demo mode\n");
-					ret = -ENOTTY;
-				}
-			} else {
-				if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0) {
-					ILI_ERR("Failed to switch demo mode\n");
-					ret = -ENOTTY;
-				}
+			if (ili_switch_tp_mode(P5_X_FW_AP_MODE) < 0) {
+				ILI_ERR("Failed to switch demo mode\n");
+				ret = -ENOTTY;
 			}
 		}
 		break;
@@ -2564,13 +2545,8 @@ int ilitek_sys_init(void)
 			ILI_ERR("Failed to create touchscreen class!\n");
 			return ret;
 		}
-
 		if((ilits->tp_module >= MODEL_TM) && (ilits->tp_module < MODEL_TM_END))
 			touchscreen_class_dev = device_create(touchscreen_class, NULL, devno, NULL, ILI_SPI_NAME_TM);
-		else if((ilits->tp_module >= MODEL_CSOT) && (ilits->tp_module < MODEL_CSOT_END))
-			touchscreen_class_dev = device_create(touchscreen_class, NULL, devno, NULL, ILI_SPI_NAME_CSOT);
-		else if((ilits->tp_module >= MODEL_TXD) && (ilits->tp_module < MODEL_TXD_END))
-			touchscreen_class_dev = device_create(touchscreen_class, NULL, devno, NULL, ILI_SPI_NAME_TXD);
 		else
 			touchscreen_class_dev = device_create(touchscreen_class, NULL, devno, NULL, ILI_SPI_NAME);
 

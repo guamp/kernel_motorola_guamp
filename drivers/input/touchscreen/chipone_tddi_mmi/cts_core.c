@@ -9,8 +9,6 @@
 #include "cts_firmware.h"
 #include "cts_charger_detect.h"
 
-static DEFINE_RT_MUTEX(dev_lock);
-
 #ifdef CONFIG_CTS_I2C_HOST
 static int cts_i2c_writeb(const struct cts_device *cts_dev,
 			  u32 addr, u8 b, int retry, int delay)
@@ -1074,48 +1072,6 @@ int cts_hw_reg_readsb_retry(const struct cts_device *cts_dev,
 	return cts_sram_readsb_retry(cts_dev, reg_addr, dst, len, retry, delay);
 }
 
-#define CTS_DEV_HW_REG_DDI_REG_CTRL     (0x3002Cu)
-
-static int icnl9911s_set_access_ddi_reg(struct cts_device *cts_dev, bool enable)
-{
-    int ret;
-    u8  access_flag;
-
-    cts_info("ICNL9911S %s access ddi reg", enable ? "enable" : "disable");
-
-    ret = cts_hw_reg_readb(cts_dev, CTS_DEV_HW_REG_DDI_REG_CTRL, &access_flag);
-    if (ret) {
-        cts_err("Read HW_REG_DDI_REG_CTRL failed %d", ret);
-        return ret;
-    }
-
-    access_flag = enable ? (access_flag | 0x01) : (access_flag & (~0x01));
-    ret = cts_hw_reg_writeb(cts_dev, CTS_DEV_HW_REG_DDI_REG_CTRL, access_flag);
-    if (ret) {
-        cts_err("Write HW_REG_DDI_REG_CTRL %02x failed %d", access_flag, ret);
-        return ret;
-    }
-
-    ret = cts_hw_reg_writeb(cts_dev, 0x30074, enable ? 1 : 0);
-    if (ret) {
-        cts_err("Write 0x30074 failed %d", ret);
-        return ret;
-    }
-
-    ret = cts_hw_reg_writew(cts_dev, 0x3DFF0, enable ? 0x595A : 0x5A5A);
-    if (ret) {
-        cts_err("Write password to F0 failed %d", ret);
-        return ret;
-    }
-    ret = cts_hw_reg_writew(cts_dev, 0x3DFF4, enable ? 0xA6A5 : 0x5A5A);
-    if (ret) {
-        cts_err("Write password to F1 failed %d", ret);
-        return ret;
-    }
-
-    return 0;
-}
-
 const static struct cts_sfctrl icnl9911_sfctrl = {
 	.reg_base = 0x34000,
 	.xchg_sram_base = (80 - 1) * 1024,
@@ -1173,7 +1129,6 @@ const static struct cts_device_hwdata cts_device_hwdatas[] = {
         .program_addr_width = 3,
 
         .sfctrl = &icnl9911c_sfctrl,
-        .enable_access_ddi_reg = icnl9911s_set_access_ddi_reg,
 	 }
 };
 
@@ -1199,14 +1154,14 @@ void cts_lock_device(const struct cts_device *cts_dev)
 {
 	cts_dbg("*** Lock ***");
 
-	rt_mutex_lock(&dev_lock);
+	rt_mutex_lock(&cts_dev->pdata->dev_lock);
 }
 
 void cts_unlock_device(const struct cts_device *cts_dev)
 {
 	cts_dbg("### Un-Lock ###");
 
-	rt_mutex_unlock(&dev_lock);
+	rt_mutex_unlock(&cts_dev->pdata->dev_lock);
 }
 
 int cts_set_work_mode(const struct cts_device *cts_dev, u8 mode)
@@ -1874,31 +1829,9 @@ int cts_suspend_device(struct cts_device *cts_dev)
 int cts_resume_device(struct cts_device *cts_dev)
 {
 	int ret = 0;
-	int retries = 3;
-
-	cts_info("Resume device");
-
-	/* Check whether device is in normal mode */
-	while (--retries >= 0) {
-#ifdef CFG_CTS_HAS_RESET_PIN
-		cts_plat_reset_device(cts_dev->pdata);
-#endif
-		cts_set_normal_addr(cts_dev);
-#ifdef CONFIG_CTS_I2C_HOST
-		if (cts_plat_is_i2c_online
-		    (cts_dev->pdata, CTS_DEV_NORMAL_MODE_I2CADDR))
-#else
-		if (cts_plat_is_normal_mode(cts_dev->pdata))
-#endif
-		{
-			break;
-		}
-	}
-
-	if (retries < 0) {
 	const struct cts_firmware *firmware = NULL;
 
-		cts_info("Need update firmware when resume");
+	cts_info("Resume device");
 
 #ifdef CFG_CTS_FW_UPDATE_FILE_LOAD
 	if (cts_dev->config_fw_name[0] != '\0') {
@@ -1923,7 +1856,6 @@ int cts_resume_device(struct cts_device *cts_dev)
 			"please update manually!!", ret);
 
 		goto err_set_program_mode;
-		}
 	}
 #ifdef CONFIG_CTS_CHARGER_DETECT
     if (cts_is_charger_exist(cts_dev)) {
@@ -2069,12 +2001,9 @@ int cts_enter_normal_mode(struct cts_device *cts_dev)
 		auto_boot = 1;
 	}
 #ifdef CFG_CTS_UPDATE_CRCCHECK
-/*
 	if (cts_dev->hwdata->hwid == CTS_DEV_HWID_ICNL9911S) {
 		auto_boot = 1;
 	}
-*/
-	auto_boot = 1;
 #endif
 	for (retries = 5; retries >= 0; retries--) {
 		if (first_boot == 1 || auto_boot == 0) {
@@ -2114,8 +2043,7 @@ int cts_enter_normal_mode(struct cts_device *cts_dev)
 				retries);
 		} else {
 			if (fwid == CTS_DEV_FWID_ICNL9911
-			    || fwid == CTS_DEV_FWID_ICNL9911S
-			    || fwid == CTS_DEV_FWID_ICNL9911C) {
+			    || fwid == CTS_DEV_FWID_ICNL9911S) {
 				cts_info("Get firmware id successful 0x%02x",
 					 fwid);
 				break;
@@ -2240,8 +2168,10 @@ int cts_stop_device(struct cts_device *cts_dev)
 #ifdef CONFIG_CTS_ESD_PROTECTION
 int cts_start_device_esdrecover(struct cts_device *cts_dev)
 {
+#ifdef CONFIG_CTS_ESD_PROTECTION
 	//struct chipone_ts_data *cts_data =
 	//    container_of(cts_dev, struct chipone_ts_data, cts_dev);
+#endif /* CONFIG_CTS_ESD_PROTECTION */
 	int ret;
 
 	cts_info("Start device...");

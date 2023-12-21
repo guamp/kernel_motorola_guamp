@@ -268,7 +268,7 @@ static int ili_spi_pll_clk_wakeup(void)
 		ILI_INFO("spi slave write error\n");
 		return -1;
 	}
-	mdelay(1);
+
 	return 0;
 }
 
@@ -354,12 +354,6 @@ static int ili_spi_wrapper(u8 *txbuf, u32 wlen, u8 *rxbuf, u32 rlen, bool spi_ir
 		}
 
 		ret = ilits->spi_write_then_read(ilits->spi, wdata, wlen, txbuf, 0);
-
-		if (!ice) {
-			 ILI_INFO("send cmd delay 1ms\n");
-			 mdelay(1);
-			 }
-
 		if (ret < 0) {
 			ILI_INFO("spi-wrapper write error\n");
 			break;
@@ -448,7 +442,7 @@ int ili_core_spi_setup(int num)
 }
 
 #ifdef ILI_FW_PANEL
-static int ili_parse_tp_module(void)
+static int ili_parse_tp_module()
 {
    int tp_module = 0;
 	if(active_panel_name) {
@@ -465,19 +459,9 @@ static int ili_parse_tp_module(void)
 				tp_module = MODEL_TM_9882N;
 			} else if (strstr(active_panel_name, "ili9882h")) {
 				tp_module = MODEL_TM_9882H;
-			} else if (strstr(active_panel_name, "ili7807s")) {
-				tp_module = MODEL_TM_7807S;
 			}
 		} else if (strstr(active_panel_name, "tianma") && strstr(active_panel_name, "ili9882n")) {
 			tp_module = MODEL_TIANMA_9882N;
-		} else if (strstr(active_panel_name, "csot")) {
-			if (strstr(active_panel_name, "ili7807s")) {
-				tp_module = MODEL_CSOT_7807S;
-			}
-		} else if (strstr(active_panel_name, "txd")) {
-			if (strstr(active_panel_name, "ili7807s")) {
-				tp_module = MODEL_TXD_7807S;
-			}
 		}
 	}
 	ILI_INFO("ili_parse_tp_module=%d\n", tp_module);
@@ -490,11 +474,6 @@ static int check_dt(struct device_node *np)
 {
 	int i;
 	int count;
-	int ret = -ENODEV;
-	bool dts_using_dummy = false;
-#ifdef ILI_FW_PANEL
-	static int retry = 0;
-#endif
 	struct device_node *node;
 	struct drm_panel *panel;
 
@@ -505,32 +484,13 @@ static int check_dt(struct device_node *np)
 	for (i = 0; i < count; i++) {
 		node = of_parse_phandle(np, "panel", i);
 		panel = of_drm_find_panel(node);
-		ILI_INFO("node->name %s !\n", node->name);
-		if(strstr(node->name, "dummy")) {
-			dts_using_dummy = true;
-		}
 		of_node_put(node);
 #ifdef ILI_FW_PANEL
 		if (!IS_ERR(panel)) {
 			ili_active_panel = panel;
 			active_panel_name = node->name;
 			ILI_INFO("%s: actived\n", active_panel_name);
-			ret = 0;
-		}
-	}
-
-		if(dts_using_dummy && ret) {
-			ILI_INFO("Retry times %d.\n", retry);
-			ret = -EPROBE_DEFER;
-			if(retry++ > 5)
-				ret = -ENODEV;
-		}
-
-		if(active_panel_name != NULL) {
-			if(strstr(active_panel_name, "dummy")) {
-				ILI_INFO("Using dummy panel! Return!\n");
-				ret = -ENODEV;
-			}
+			return 0;
 		}
 #else
 		if (!IS_ERR(panel)) {
@@ -547,26 +507,16 @@ static int check_dt(struct device_node *np)
 				return MODEL_TM;
 			}
 		}
-	}
 #endif    //ILI_FW_PANEL
-
+	}
 	if (node)
 		pr_err("%s: %s not actived\n", __func__, node->name);
-	return ret;
+	return -ENODEV;
 }
 
 static int parse_dt(struct device_node *np)
 {
 	int32_t ret = 0;
-
-#ifdef ILI_SENSOR_EN
-	if (of_property_read_bool(np, "ilitek,report_gesture_key")) {
-		ILI_INFO("ilitek,report_gesture_key set");
-		ilits->report_gesture_key = 1;
-	} else {
-		ilits->report_gesture_key = 0;
-	}
-#endif
 
 #ifdef ILI_CONFIG_PANEL_GESTURE
 	//parse gesture by panel config
@@ -601,9 +551,7 @@ static int ilitek_spi_probe(struct spi_device *spi)
 	container_of(to_spi_driver(spi->dev.driver),
 		struct touch_bus_info, bus_driver);
 	int tp_module = 0;
-#ifdef ILI_FW_PANEL
-	int ret;
-#endif
+
 	ILI_INFO("ilitek spi probe\n");
 
 	if (!spi) {
@@ -614,19 +562,10 @@ static int ilitek_spi_probe(struct spi_device *spi)
 #ifdef CONFIG_DRM
 {
 	struct device_node *dp = spi->dev.of_node;
-
-#ifdef ILI_FW_PANEL
-	ret = check_dt(dp);
-	if (ret) {
-		ILI_INFO("panel error\n");
-		return ret;
-	}
-#else
 	if ((tp_module = check_dt(dp)) < 0) {
 		ILI_ERR("%s: %s not actived\n", __func__, dp->name);
 		return -ENODEV;
 	}
-#endif
 }
 #endif
 	ilits = devm_kzalloc(&spi->dev, sizeof(struct ilitek_ts_data), GFP_KERNEL);

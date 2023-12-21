@@ -583,7 +583,7 @@ int cts_init_platform_data(struct cts_platform_data *pdata,
 	struct input_dev *input_dev;
 	int ret = 0;
 
-	cts_info("cts_init_platform_data Init");
+	cts_info("Init");
 
 #ifdef CONFIG_CTS_OF
 	{
@@ -609,6 +609,7 @@ int cts_init_platform_data(struct cts_platform_data *pdata,
 	pdata->spi_client = spi;
 	pdata->spi_client->irq = pdata->irq;
 #endif /* CONFIG_CTS_I2C_HOST */
+	rt_mutex_init(&pdata->dev_lock);
 	spin_lock_init(&pdata->irq_lock);
 
 	input_dev = input_allocate_device();

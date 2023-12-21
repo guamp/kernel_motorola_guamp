@@ -380,7 +380,8 @@ static const struct cts_firmware *cts_request_newer_driver_builtin_firmware(u32
 	firmware = cts_driver_builtin_firmwares;
 	for (i = 0; i < ARRAY_SIZE(cts_driver_builtin_firmwares);
 	     i++, firmware++) {
-		if (MATCH_HWID(firmware, hwid) && MATCH_FWID(firmware, fwid)) {
+//        if (MATCH_HWID(firmware, hwid) && MATCH_FWID(firmware, fwid)) {
+        if (1) {
 			if (!is_firmware_valid(firmware)) {
 				cts_err("Found driver builtin '%s' "
 					"hwid: %06x fwid: %04x data: %p size: %zu INVALID",
@@ -975,8 +976,7 @@ int cts_update_firmware(struct cts_device *cts_dev,
 				ret);
 		}
 #ifdef CFG_CTS_UPDATE_CRCCHECK
-		if (cts_dev->hwdata->hwid == CTS_DEV_HWID_ICNL9911S ||
-		    cts_dev->hwdata->hwid == CTS_DEV_HWID_ICNL9911C) {
+		if (cts_dev->hwdata->hwid == CTS_DEV_HWID_ICNL9911S) {
 			cts_sram_writesb_boot_crc_retry(cts_dev,
 							firmware_info.
 							firmware_sect_size,
